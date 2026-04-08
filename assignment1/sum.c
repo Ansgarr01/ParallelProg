@@ -3,8 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-
-// small modify
+//Small change
 int min(int a, int b) {
     return (a < b) ? a : b;
 }
