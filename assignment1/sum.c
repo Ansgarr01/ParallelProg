@@ -21,23 +21,15 @@ int compute_sum(int rank, int num_proc, int hole, int rest, int *numbers){
 
 
 int main(int argc, char **argv) {
-	if (2 != argc) {
+	if (argc < 2) {
 		printf("Usage: sum number_of_summands\n");
 		return 1;
 	}
 	int num_steps = atoi(argv[1]);
-	int sum = 0;
 	int numbers[num_steps];
-	int i;
-	for(i=0; i<num_steps; i++){
-	    numbers[i] = rand()%1000; // dont want too big values. Now caps at 999
+	for(int i=0; i<num_steps; i++){
+	    numbers[i] = rand()%1000; //max int size 999
 	}
-
-	// for(i=0; i<num_steps;i++){
- //        sum += numbers[i];
- //    }
-	// printf("Sum without MPI is: %d\n", sum);
-	// sum = 0;
 
 	int num_proc;
 	int rank;
@@ -45,41 +37,43 @@ int main(int argc, char **argv) {
 	MPI_Init(&argc, &argv);               /* Initialize MPI               */
     MPI_Comm_size(MPI_COMM_WORLD, &num_proc); /* Get the number of processors */
     MPI_Comm_rank(MPI_COMM_WORLD, &rank); /* Get my number                */
-    printf("we have %d processes\n",num_proc);
+
+    if(rank == 0){
+        int sum = 0;
+        for(int i=0; i<num_steps;i++){
+            sum += numbers[i];
+        }
+	    printf("Sum without parallelization is: %d\n", sum);
+    }
+    
 
     int ssum;
-    int hole = num_steps/num_proc;
-    int rest = num_steps%num_proc;
-
-    // calculate sum in each processor and create reciver
-    ssum = compute_sum(rank, num_proc, hole, rest, numbers);
+    ssum = compute_sum(rank, num_proc, num_steps/num_proc, num_steps%num_proc, numbers);
     int rec = 0;
 
-    printf("We have summed the array and process %d have gotten %d\n", rank, ssum);
+    //printf("We have summed the array and process %d have gotten %d\n", rank, ssum);
 
-    // reduce
-    for(i=1; i < num_proc; i = i*2){
-        int test = (rank%(i*2));
+    for(int i=1; i < num_proc; i = i*2){
         if(rank%(i*2) == i)
         {
-            printf("DEBUG we send to rank %d and we are rank %d\n", (rank-(i)) ,rank);
-            MPI_Send(&ssum, 1, MPI_INT, (rank-(i)), 111, MPI_COMM_WORLD);
+            MPI_Send(&ssum, 1, MPI_INT, rank-i, 111, MPI_COMM_WORLD);
+            break; //kill sender
         }
         else if(rank%(i*2) == 0)
         {
-            printf("DEBUG we are rank %d and recive from rank %d\n",rank, (rank + (i)));
-            MPI_Recv(&rec, 1, MPI_INT, (rank + (i)), 111, MPI_COMM_WORLD, &status);
+            if(rank + i < num_proc)
+            {
+                MPI_Recv(&rec, 1, MPI_INT, rank + i, 111, MPI_COMM_WORLD, &status);
+                int rec_val = rec; //only receiver needs to add.
+                ssum = rec_val + ssum;
+            }
         }
-        int rec_val = rec;
-        ssum = rec_val + ssum;
     }
 
     if(rank == 0){
-        sum = ssum;
-        printf("sum is %d\n",sum);
+        printf("sum is %d\n", ssum);
     }
     MPI_Finalize();
-	// printf("Parallel Summation\n");
 
 	return 0;
 }
