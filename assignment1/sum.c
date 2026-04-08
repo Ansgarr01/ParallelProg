@@ -21,7 +21,7 @@ int compute_sum(int rank, int num_proc, int hole, int rest, int *numbers){
 
 
 int main(int argc, char **argv) {
-	if (argc < 2) {
+	if (argc != 2) {
 		printf("Usage: sum number_of_summands\n");
 		return 1;
 	}
