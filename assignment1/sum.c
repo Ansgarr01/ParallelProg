@@ -14,20 +14,10 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 	int num_steps = atoi(argv[1]);
-	long int sum = 0;
-	//int numbers[num_steps];
-	int *numbers = malloc(num_steps * sizeof(int));
-	int i;
-	srand(time(NULL));
-	for(i=0; i<num_steps; i++){
-	    numbers[i] = rand()%500; // dont want too big values. Now caps at 499
+	int numbers[num_steps];
+	for(int i=0; i<num_steps; i++){
+	    numbers[i] = rand()%1000; //max int size 999
 	}
-
-	for(i=0; i<num_steps;i++){
-        sum += numbers[i];
-    }
-	printf("Sum without MPI is: %ld\n", sum);
-	sum = 0;
 
 	int num_proc;
 	int rank;
@@ -44,6 +34,34 @@ int main(int argc, char **argv) {
 	    printf("Sum without parallelization is: %d\n", sum);
     }
     
+
+    int ssum;
+    ssum = compute_sum(rank, num_proc, num_steps/num_proc, num_steps%num_proc, numbers);
+    int rec = 0;
+
+    //printf("We have summed the array and process %d have gotten %d\n", rank, ssum);
+
+    for(int i=1; i < num_proc; i = i*2){
+        if(rank%(i*2) == i)
+        {
+            MPI_Send(&ssum, 1, MPI_INT, rank-i, 111, MPI_COMM_WORLD);
+            break; //kill sender
+        }
+        else if(rank%(i*2) == 0)
+        {
+            if(rank + i < num_proc)
+            {
+                MPI_Recv(&rec, 1, MPI_INT, rank + i, 111, MPI_COMM_WORLD, &status);
+                int rec_val = rec; //only receiver needs to add.
+                ssum = rec_val + ssum;
+            }
+        }
+    }
+
+    if(rank == 0){
+        printf("sum is %d\n", ssum);
+    }
+    MPI_Finalize();
 
     int MPI_Barrier(MPI_Comm);
     MPI_Barrier(MPI_COMM_WORLD);
