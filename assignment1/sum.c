@@ -3,22 +3,10 @@
 #include <stdlib.h>
 #include <time.h>
 
-//Small change
+
 int min(int a, int b) {
     return (a < b) ? a : b;
 }
-
-int compute_sum(int rank, int num_proc, int hole, int rest, int *numbers){
-    int sssum=0;
-    int first_element = rank*hole + min(rest, rank);
-    int next_first = (rank+1)*hole + min(rest, (rank+1));
-    int j = first_element;
-    for(j = first_element; j < next_first ; j++){
-        sssum += numbers[j];
-    }
-    return sssum;
-}
-
 
 int main(int argc, char **argv) {
 	if (2 != argc) {
@@ -26,18 +14,20 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 	int num_steps = atoi(argv[1]);
-	int sum = 0;
-	int numbers[num_steps];
+	long int sum = 0;
+	//int numbers[num_steps];
+	int *numbers = malloc(num_steps * sizeof(int));
 	int i;
+	srand(time(NULL));
 	for(i=0; i<num_steps; i++){
-	    numbers[i] = rand()%1000; // dont want too big values. Now caps at 999
+	    numbers[i] = rand()%500; // dont want too big values. Now caps at 499
 	}
 
-	// for(i=0; i<num_steps;i++){
- //        sum += numbers[i];
- //    }
-	// printf("Sum without MPI is: %d\n", sum);
-	// sum = 0;
+	for(i=0; i<num_steps;i++){
+        sum += numbers[i];
+    }
+	printf("Sum without MPI is: %ld\n", sum);
+	sum = 0;
 
 	int num_proc;
 	int rank;
@@ -47,39 +37,40 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank); /* Get my number                */
     printf("we have %d processes\n",num_proc);
 
-    int ssum;
-    int hole = num_steps/num_proc;
-    int rest = num_steps%num_proc;
+    int MPI_Barrier(MPI_Comm);
+    MPI_Barrier(MPI_COMM_WORLD);
+    double starttime, endtime;
+    starttime = MPI_Wtime();
 
-    // calculate sum in each processor and create reciver
-    ssum = compute_sum(rank, num_proc, hole, rest, numbers);
-    int rec = 0;
-
-    printf("We have summed the array and process %d have gotten %d\n", rank, ssum);
-
+    long int rec = 0;
+    // calculate sum from currect rank first to next rank first
+    int first_element = (num_steps/num_proc)*rank + min(num_steps%num_proc, rank);
+    int next_first = (num_steps/num_proc)*(rank+1) + min(num_steps%num_proc, (rank+1));
+    for(first_element; first_element < next_first ; first_element++){
+        sum += numbers[first_element];
+    }
     // reduce
     for(i=1; i < num_proc; i = i*2){
-        int test = (rank%(i*2));
         if(rank%(i*2) == i)
         {
-            printf("DEBUG we send to rank %d and we are rank %d\n", (rank-(i)) ,rank);
-            MPI_Send(&ssum, 1, MPI_INT, (rank-(i)), 111, MPI_COMM_WORLD);
+            // printf("DEBUG we send to rank %d and we are rank %d\n", (rank-(i)) ,rank);
+            MPI_Send(&sum, 1, MPI_LONG_INT, (rank-(i)), 111, MPI_COMM_WORLD);
+            break; //kill sender
         }
-        else if(rank%(i*2) == 0)
+        else if((rank%(i*2) == 0) && (rank < num_proc-i))
         {
-            printf("DEBUG we are rank %d and recive from rank %d\n",rank, (rank + (i)));
-            MPI_Recv(&rec, 1, MPI_INT, (rank + (i)), 111, MPI_COMM_WORLD, &status);
+            // printf("DEBUG we are rank %d and recive from rank %d\n",rank, (rank + (i)));
+            MPI_Recv(&rec, 1, MPI_LONG_INT, (rank + (i)), 111, MPI_COMM_WORLD, &status);
         }
-        int rec_val = rec;
-        ssum = rec_val + ssum;
+        sum += rec;
     }
 
+    endtime   = MPI_Wtime();
     if(rank == 0){
-        sum = ssum;
-        printf("sum is %d\n",sum);
+        printf("sum is %ld\n",sum);
+        printf("That took %f seconds\n",endtime-starttime);
+        printf("Parallel Summation\n");
     }
-    MPI_Finalize();
-	// printf("Parallel Summation\n");
-
+    MPI_Finalize();  /* End MPI */
 	return 0;
 }
