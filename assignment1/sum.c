@@ -9,7 +9,7 @@ int min(int a, int b) {
 }
 
 int main(int argc, char **argv) {
-	if (2 != argc) {
+	if (argc != 2) {
 		printf("Usage: sum number_of_summands\n");
 		return 1;
 	}
@@ -35,7 +35,15 @@ int main(int argc, char **argv) {
 	MPI_Init(&argc, &argv);               /* Initialize MPI               */
     MPI_Comm_size(MPI_COMM_WORLD, &num_proc); /* Get the number of processors */
     MPI_Comm_rank(MPI_COMM_WORLD, &rank); /* Get my number                */
-    printf("we have %d processes\n",num_proc);
+
+    if(rank == 0){
+        int sum = 0;
+        for(int i=0; i<num_steps;i++){
+            sum += numbers[i];
+        }
+	    printf("Sum without parallelization is: %d\n", sum);
+    }
+    
 
     int MPI_Barrier(MPI_Comm);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -59,10 +67,9 @@ int main(int argc, char **argv) {
         }
         else if((rank%(i*2) == 0) && (rank < num_proc-i))
         {
-            // printf("DEBUG we are rank %d and recive from rank %d\n",rank, (rank + (i)));
-            MPI_Recv(&rec, 1, MPI_LONG_INT, (rank + (i)), 111, MPI_COMM_WORLD, &status);
+            MPI_Recv(&rec, 1, MPI_INT, rank + i, 111, MPI_COMM_WORLD, &status);
+            sum += rec;
         }
-        sum += rec;
     }
 
     endtime   = MPI_Wtime();
