@@ -6,14 +6,14 @@ CC = mpicc
 CFLAGS = -std=c99 -g -O3
 LIBS = -lm
 
-BIN = stencil parallel_stensil
+BIN = stencil parallel_stencil
 
 all: $(BIN)
 
 stencil: stencil.c stencil.h
 	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
 
-parallel_stensil: parallel_stensil.c stencil.h
+parallel_stencil: parallel_stencil.c stencil.h
 	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
 
 clean:
