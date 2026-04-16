@@ -18,15 +18,14 @@ int main(int argc, char **argv) {
 
 
     int num_values;
+    double *whole_input;
     if(rank == 0){ // read data and send it too other
-        double *whole_input;
         if (0 > (num_values = read_input(input_name, &whole_input))) {
             return 2;
         }
     }
     //send num_vals first
-    // NOTE FOR ISA: i did this since i need num_values to malloc for 'input'
-    MPI_Scatter(&num_values, 1, MPI_INT, &num_values, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&num_values, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     int ind_num_values = num_values/size; // number of values each processer gets. (size | num_values) assumed!
     double *input;
@@ -35,9 +34,8 @@ int main(int argc, char **argv) {
 		perror("Couldn't allocate memory for individual input");
 		return 2;
     }
-    MPI_Scatter(&whole_input, ind_num_values, MPI_DOUBLE, &input, ind_num_values, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Scatter(whole_input, ind_num_values, MPI_DOUBLE, input, ind_num_values, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     if(rank == 0){
-        // NOTE TO ISA: im fine moving this elsewhere.
         free(whole_input);
     }
 
@@ -47,8 +45,8 @@ int main(int argc, char **argv) {
 	const int EXTENT = STENCIL_WIDTH/2;
 	const double STENCIL[] = {1.0/(12*h), -8.0/(12*h), 0.0, 8.0/(12*h), -1.0/(12*h)};
 	// Start timer
+	MPI_Barrier(MPI_COMM_WORLD);
 	double start = MPI_Wtime();
-
 	// Allocate data for result
 	double *output;
 	if (NULL == (output = malloc(ind_num_values * sizeof(double)))) {
@@ -60,37 +58,26 @@ int main(int argc, char **argv) {
 	//Parallel version of repeatedly apply stencil
 	for (int s=0; s<num_steps; s++) {
 		// Apply stencil
-
+		double l_sendbuf[] = {input[0], input[1]};
+		double r_sendbuf[] = {input[ind_num_values - 2], input[ind_num_values-1]};
+		double l_recvbuf[2];
+		double r_recvbuf[2];
 		//We Need to send values here
-		for(int i=0; i < size; i++){
-		    double l_sendbuf[2] = [input[0], input[1]];
-			double r_sendbuf[2] = [input[ind_num_values - 1], input[ind_num_values]];
-			double  l_recvbuf[2];
-			double  r_recvbuf[2];
-			// NOTE FOR ISA:
-		    if(rank%2==0){
-				MPI_Status status;
-				MPI_Send(&l_sendbuf, 2, MPI_DOUBLE, (rank-1)&size, rank, MPI_COMM_WORLD); // koppling 1
-				MPI_Send(&r_sendbuf, 2, MPI_DOUBLE, (rank+1)&size, rank, MPI_COMM_WORLD); // koppling 2
-                MPI_Recv(&r_recvbuf, 2, MPI_DOUBLE, (rank+1)&size, rank, MPI_COMM_WORLD, status); // koppling 3
-                MPI_Recv(&l_recvbuf, 2, MPI_DOUBLE, (rank-1)&size, rank, MPI_COMM_WORLD, status); // koppling 4
-			}
-			else{
-			    MPI_Status status;
-                MPI_Recv(&r_recvbuf, 2, MPI_DOUBLE, (rank+1)&size, rank, MPI_COMM_WORLD, status); // koppling 1
-                MPI_Recv(&l_recvbuf, 2, MPI_DOUBLE, (rank-1)&size, rank, MPI_COMM_WORLD, status); // koppling 2
-			    MPI_Send(&l_sendbuf, 2, MPI_DOUBLE, (rank-1)&size, rank, MPI_COMM_WORLD); // koppling 3
-			    MPI_Send(&r_sendbuf, 2, MPI_DOUBLE, (rank+1)&size, rank, MPI_COMM_WORLD); // koppling 4
-			}
-		}
+		MPI_Status status;
+		MPI_Request request[2];
+		MPI_Isend(l_sendbuf, 2, MPI_DOUBLE, (rank-1+size)%size, 0, MPI_COMM_WORLD, &request[0]); // koppling 0
+		MPI_Isend(r_sendbuf, 2, MPI_DOUBLE, (rank+1)%size, 1, MPI_COMM_WORLD, &request[1]); // koppling 1
+        MPI_Recv(r_recvbuf, 2, MPI_DOUBLE, (rank+1)%size, 0, MPI_COMM_WORLD, &status); // koppling 0
+        MPI_Recv(l_recvbuf, 2, MPI_DOUBLE, (rank-1+size)%size, 1, MPI_COMM_WORLD, &status); // koppling 1
+//        MPI_Waitall(2, request, MPI_STATUSES_IGNORE);
 
 		// the two values which need to get values to the left
 		for (int i=0; i<EXTENT; i++) {
 			double result = 0;
-			// for lop for values inside bulk
-			for (int j=EXTENT-i; j<STENCIL_WIDTH; j++) {
+			for (int j=0; j<STENCIL_WIDTH; j++) {
 			    if(j<EXTENT-i){
-					result += STENCIL[j] * l_recvbuf[j];
+
+					result += STENCIL[j] * l_recvbuf[j+i];
 				}
 				else{
 				    int index = (i - EXTENT + j);
@@ -111,14 +98,14 @@ int main(int argc, char **argv) {
 		// the two values which need to get values to the right
 		for (int i=ind_num_values-EXTENT; i<ind_num_values; i++) {
 			double result = 0;
-			if(j> EXTENT + ind_num_values - i){
-			    for (int j=0; j<STENCIL_WIDTH; j++) {
+			for (int j=0; j<STENCIL_WIDTH; j++) {
+			    if(j< EXTENT + ind_num_values - i){
 					int index = (i - EXTENT + j);
 	                result += STENCIL[j] * input[index];
                 }
-			}
-			else{
-			    result += STENCIL[j] * r_recvbuf[j+1-STENCIL_WIDTH];
+                else{
+                    result += STENCIL[j] * r_recvbuf[j+EXTENT-(ind_num_values-1-i)-STENCIL_WIDTH];
+                }
 			}
 			output[i] = result;
 		}
@@ -131,23 +118,27 @@ int main(int argc, char **argv) {
 	}
 	free(input);
 
-
-	// Stop timer
+	// Stop timer and get max result
 	double my_execution_time = MPI_Wtime() - start;
+	double global_time;
+	MPI_Reduce(&my_execution_time,&global_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+
 	// join results
+	double *whole_output;
 	if(rank == 0){
-	    // NOTE TO ISA: Should i reuse whole_input w/out freeing it above?
-	    double *whole_output;
 		if (NULL == (whole_output = malloc(num_values * sizeof(double)))) {
 			perror("Couldn't allocate memory for whole output");
 		return 2;
 		}
 	}
-	MPI_Gather(&output, ind_num_values, MPI_DOUBLE, &whole_output, ind_num_values, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Gather(output, ind_num_values, MPI_DOUBLE, whole_output, ind_num_values, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	// Unassign here
 	free(output);
 	// Write result
-	printf("%f\n", my_execution_time);
+	if(rank==0){
+	    printf("%f\n", global_time);
+	}
 
 #ifdef PRODUCE_OUTPUT_FILE
     // Only Process 0 should write output
@@ -157,7 +148,6 @@ int main(int argc, char **argv) {
 	    }
     }
 #endif
-
 	// Clean up
 	if(rank == 0){
 	    free(whole_output);
